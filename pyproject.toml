@@ -1,0 +1,19 @@
+[project]
+name = "llm-finetune-for-mac"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "ai-edge-litert-nightly>=2.2.0.dev20260103",
+    "ai-edge-torch-nightly>=0.8.0.dev20260103",
+    "datasets>=4.4.2",
+    "huggingface-hub>=0.36.0",
+    "numpy>=2.4.0",
+    "python-dotenv>=1.2.1",
+    "scipy>=1.16.3",
+    "tf-keras>=2.20.1",
+    "torch>=2.9.1",
+    "transformers>=4.57.3",
+    "trl>=0.26.2",
+]
