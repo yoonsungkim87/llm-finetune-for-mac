@@ -7,6 +7,7 @@ from huggingface_hub import hf_hub_download, login
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 import shutil
+import glob
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,7 +15,7 @@ load_dotenv()
 # --- Configuration ---
 MODEL_ID = "google/functiongemma-270m-it"
 DATASET_ID = "google/mobile-actions"
-OUTPUT_DIR = "mobile-actions-functiongemma"
+OUTPUT_DIR = "result"
 LITERTLM_OUTPUT_DIR = "litertlm_output"
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
@@ -116,67 +117,15 @@ trainer = SFTTrainer(
     eval_dataset=eval_dataset,
 )
 
-trainer.train()
+# Check for existing checkpoints
+checkpoints = glob.glob(os.path.join(OUTPUT_DIR, "checkpoint-*"))
+if checkpoints:
+    print(f"Found {len(checkpoints)} checkpoints. Resuming from the latest one.")
+    trainer.train(resume_from_checkpoint=True)
+else:
+    print("No checkpoints found. Starting training from scratch.")
+    trainer.train()
 
 print(f"Saving fine-tuned model to {OUTPUT_DIR}...")
 trainer.save_model(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
-
-# --- 4. Convert to .litertlm ---
-print("\nStarting conversion to LiteRT-LM (.litertlm) ...")
-
-try:
-    from ai_edge_torch.generative.examples.gemma3 import gemma3
-    from ai_edge_torch.generative.utilities import converter
-    from ai_edge_torch.generative.utilities.export_config import ExportConfig
-    from ai_edge_torch.generative.layers import kv_cache
-except ImportError:
-    print("Error: ai-edge-torch-nightly is required. Please install it.")
-    exit(1)
-
-# Metadata for FunctionGemma
-llm_metadata = """start_token: { 
-    token_ids: { 
-        ids: [ 2 ] 
-    } 
-}
-stop_tokens: { 
-    token_str: "<end_of_turn>" 
-}
-stop_tokens: { 
-    token_str: "<start_function_response>" 
-}
-llm_model_type: { 
-    function_gemma: {} 
-}
-"""
-
-os.makedirs(LITERTLM_OUTPUT_DIR, exist_ok=True)
-metadata_path = os.path.join(LITERTLM_OUTPUT_DIR, 'base_llm_metadata.textproto')
-with open(metadata_path, 'w') as f:
-    f.write(llm_metadata)
-
-print("Building PyTorch model for conversion (this may take a moment)...")
-# Note: Conversion often works best on CPU to avoid device conflicts during export tracing
-# We reload the model from the checkpoint using the library's builder
-pytorch_model = gemma3.build_model_270m(OUTPUT_DIR)
-
-export_config = ExportConfig()
-export_config.kvcache_layout = kv_cache.KV_LAYOUT_TRANSPOSED
-export_config.mask_as_input = True
-
-print("Converting...")
-converter.convert_to_litert(
-    pytorch_model,
-    output_path=LITERTLM_OUTPUT_DIR,
-    output_name_prefix="mobile-actions",
-    prefill_seq_len=256,
-    kv_cache_max_len=1024,
-    quantize="dynamic_int8",
-    export_config=export_config,
-    tokenizer_model_path=os.path.join(OUTPUT_DIR, 'tokenizer.model'),
-    base_llm_metadata_path=metadata_path,
-    output_format="litertlm",
-)
-
-print(f"\nConversion complete! Model saved in: {LITERTLM_OUTPUT_DIR}")
